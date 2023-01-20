@@ -6,5 +6,5 @@ import (
 )
 
 func main() {
-	singlechecker.Main(errstringcheck.Analyzer)
+	singlechecker.Main(errstringcheck.NewAnalyzer())
 }
