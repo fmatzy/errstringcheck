@@ -19,7 +19,7 @@ func NewAnalyzer() *analysis.Analyzer {
 	r := &runner{}
 	a := &analysis.Analyzer{
 		Name: "errstringcheck",
-		Doc:  "errstringcheck check error message format",
+		Doc:  "errstringcheck checks error message format",
 		Run:  r.run,
 		Requires: []*analysis.Analyzer{
 			buildssa.Analyzer,
