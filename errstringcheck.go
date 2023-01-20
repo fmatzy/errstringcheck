@@ -73,17 +73,25 @@ func isInvalidErrorf(pass *analysis.Pass, inst ssa.Instruction, wrapOnly bool) b
 		return false
 	}
 
-	if !hasErrArg(pass, call.Pos()) {
+	args, ok := getErrofArgs(pass, call.Pos())
+	if !ok {
 		return false
 	}
 
-	if strings.HasSuffix(formatStr, ": %w") {
-		return false
+	for _, arg := range args {
+		if isErrorFuncCall(pass, arg) || isErrorVariable(pass, arg) {
+			if strings.HasSuffix(formatStr, ": %w") {
+				return false
+			}
+			if !wrapOnly && strings.HasSuffix(formatStr, ": %v") {
+				return false
+			}
+
+			return true
+		}
 	}
-	if !wrapOnly && strings.HasSuffix(formatStr, ": %v") {
-		return false
-	}
-	return true
+
+	return false
 }
 
 func isCallFmtErrorf(call *ssa.Call) bool {
@@ -108,37 +116,59 @@ func getFormatStr(v ssa.Value) (string, bool) {
 	return constant.StringVal(format.Value), true
 }
 
-func hasErrArg(pass *analysis.Pass, pos token.Pos) bool {
+func getErrofArgs(pass *analysis.Pass, pos token.Pos) ([]ast.Expr, bool) {
 	file := getFile(pass.Files, pos)
 	if file == nil {
-		return false
+		return nil, false
 	}
 
 	path, exact := astutil.PathEnclosingInterval(file, pos, pos)
 	if !exact || len(path) == 0 {
-		return false
+		return nil, false
 	}
 
 	callExpr, ok := path[0].(*ast.CallExpr)
 	if !ok {
-		return false
+		return nil, false
 	}
 
 	if callExpr.Ellipsis != token.NoPos {
-		return false
+		return nil, false
 	}
 
 	if len(callExpr.Args) < 2 {
+		return nil, false
+	}
+	return callExpr.Args[1:], true
+}
+
+func isErrorVariable(pass *analysis.Pass, arg ast.Expr) bool {
+	typ := pass.TypesInfo.TypeOf(arg)
+	return types.Implements(typ, errType)
+}
+
+func isErrorFuncCall(pass *analysis.Pass, arg ast.Expr) bool {
+	typ := pass.TypesInfo.TypeOf(arg)
+	if typ.String() != "string" {
 		return false
 	}
 
-	for _, arg := range callExpr.Args[1:] {
-		typ := pass.TypesInfo.TypeOf(arg)
-		if types.Implements(typ, errType) {
-			return true
-		}
+	errCall, ok := arg.(*ast.CallExpr)
+	if !ok {
+		return false
 	}
-	return false
+
+	callSel, ok := errCall.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	f, ok := pass.TypesInfo.ObjectOf(callSel.Sel).(*types.Func)
+	if !ok {
+		return false
+	}
+
+	return f.Type().String() == "func() string" && f.Name() == "Error"
 }
 
 func getFile(fs []*ast.File, pos token.Pos) *ast.File {
